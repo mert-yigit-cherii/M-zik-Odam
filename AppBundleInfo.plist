@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>tr</string>
+    <key>CFBundleDisplayName</key>
+    <string>Müzik Odam</string>
+    <key>CFBundleExecutable</key>
+    <string>MuzikOdam</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.mertyigit.muzikodam</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Müzik Odam</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Müzik Odam, masaüstünüzde bulunan yerel müzik dosyalarını kütüphanenize eklemek için erişim ister.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Müzik Odam, indirilen müzik dosyalarını otomatik olarak kütüphanenize eklemek için erişim ister.</string>
+    <key>NSMusicFolderUsageDescription</key>
+    <string>Müzik Odam, Müzik klasörünüzdeki yerel dosyaları taramak ve oynatmak için erişim ister.</string>
+</dict>
+</plist>
