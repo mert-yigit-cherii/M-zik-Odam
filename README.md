@@ -1,7 +1,7 @@
 # Müzik Odam
 
 Mac’inizdeki müzik dosyalarını çalmak için kişisel, yerel bir mini oynatıcı.
-Dosyalarınız uygulamanın dışına yüklenmez veya paylaşılmaz.
+Müzik dosyalarınız cihazınızdan dışarı yüklenmez. Şarkı bilgilerini ve kapak görsellerini zenginleştirmek için şarkı adı ve sanatçı bilgileri Apple iTunes Search API'sine gönderilebilir.
 
 ## Çalıştırma
 
