@@ -2,3 +2,7 @@
 .build/
 outputs/
 work/
+
+# Build artifacts
+Müzik Odam.app/
+Müzik Odam.dmg
