@@ -234,7 +234,7 @@ final class MusicPlayer: NSObject, ObservableObject {
     deinit { progressTimer?.invalidate(); scanTimer?.invalidate(); if let endObserver { NotificationCenter.default.removeObserver(endObserver) } }
 }
 
-private enum LibraryView { case all, favorites, recent, playlist(String) }
+private enum LibraryView: Equatable { case all, favorites, recent, playlist(String) }
 
 struct ContentView: View {
     @EnvironmentObject private var player: MusicPlayer
@@ -265,6 +265,9 @@ struct ContentView: View {
         case .all: break
         case .favorites: result = result.filter { player.favoriteIDs.contains($0.id) }
         case .recent: result = player.recentlyPlayedIDs.compactMap { id in result.first { $0.id == id } }
+        case .playlist(let playlistID):
+            let ids = Set(player.playlists.first { $0.id == playlistID }?.trackIDs ?? [])
+            result = result.filter { ids.contains($0.id) }
         }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty { result = result.filter { "\($0.title) \($0.artist) \($0.album)".localizedCaseInsensitiveContains(query) } }
