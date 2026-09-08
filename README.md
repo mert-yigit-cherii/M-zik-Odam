@@ -1,29 +1,34 @@
-# Müzik Odam
+# Müzik Odam v1.1.0
 
-Mac’inizdeki müzik dosyalarını çalmak için kişisel, yerel bir mini oynatıcı.
-Müzik dosyalarınız cihazınızdan dışarı yüklenmez. Şarkı bilgilerini ve kapak görsellerini zenginleştirmek için şarkı adı ve sanatçı bilgileri Apple iTunes Search API'sine gönderilebilir.
+macOS 14 veya daha yenisi için yerel müzik oynatıcısı.
 
-## Çalıştırma
+## Öne çıkanlar
 
-Terminal’i bu klasörde açıp aşağıdaki komutu çalıştırın:
+- Türkçe ve English arayüzü; yalnızca ilk açılışta gösterilen kurulum akışı
+- Sistem, açık ve koyu tema; vurgu rengi seçimi
+- Varsayılan Müzik, Downloads ve Desktop klasörlerini veya seçtiğiniz özel klasörü tarama
+- Liste ve responsive ızgara görünümü; şarkı, sanatçı ve albüm araması
+- Albüm ve sanatçı detay sayfaları
+- Kalıcı playlist oluşturma, yeniden adlandırma, silme ve şarkı yönetimi
+- Play/Pause, seek, ses, Shuffle ve Repeat kontrolleri
+- macOS Now Playing, medya tuşları ve menu bar mini player
+- Gerçek 9 bantlı Equalizer (60 Hz–16 kHz) ve presetler
+- Albüm kapağından türetilen Ambient Effect
 
-```sh
-swift run MuzikOdam
-```
+MP3, AAC/M4A, WAV, AIFF, ALAC, FLAC ve macOS tarafından çözülebilen diğer yerel ses biçimleri desteklenir. Çok kanallı parçalarda EQ, kanal yapısını zorla stereo'ya çevirmemek için güvenli biçimde devre dışı kalır; parça macOS oynatıcısında oynatılır. Dolby Atmos desteği iddia edilmez.
 
-İlk çalıştırmada derleme birkaç saniye sürebilir; sonraki çalıştırmalar daha hızlıdır.
+Visualizer v1.1.0 sürümüne dahil değildir.
 
-## Özellikler
+## Gizlilik
 
-- Başlangıçta Mac'inizdeki `Müzik` klasörünü tarama; seçilen klasörü 12 saniyede bir yeniden tarama
-- Yeni bulunan parçalarda gömülü etiketleri okuma ve MusicBrainz üzerinden başlık, sanatçı, albüm, yıl ve kapak bilgisi arama
-- MP3, M4A, AAC, WAV, AIFF, FLAC, OGG/OGA, Opus, ALAC, CAF, WMA ve diğer yaygın uzantıları kütüphaneye ekleme
-- Kütüphane listesi ve parça silme
-- Oynat/duraklat, ileri/geri parça
-- İlerleme çubuğu üzerinden sarma
-- Ses seviyesi denetimi
-- Sistem, açık veya koyu görünüm; pembe, mor, mavi veya turuncu vurgu rengi
+Müzik dosyalarınız cihazınızdan dışarı yüklenmez. Şarkı bilgilerini ve kapak görsellerini zenginleştirmek için yalnızca şarkı adı ve sanatçı bilgileri Apple iTunes Search API’sine gönderilebilir.
 
-> Not: Kütüphane tüm listelenen uzantıları tarar. Bir dosyanın çalınabilirliği macOS'un yerleşik medya çözücüsüne bağlıdır; desteklenmeyen bir kodek için uygulama hata mesajı gösterir.
+## Kurulum
 
-Bu proje macOS 14 veya daha yeni bir sürüm hedefler.
+Müzik Odam.dmg dosyasını açın ve **Müzik Odam.app** uygulamasını **Applications** klasörüne sürükleyin.
+
+Bu sürüm Apple Developer ID ile imzalanmış veya notarize edilmiş değildir; ad-hoc imzalıdır. macOS Gatekeeper uygulamayı engellerse **System Settings → Privacy & Security → Open Anyway** yolundan açılmasına izin verin. Uygulama Apple tarafından notarize edilmiş gibi tanıtılmaz.
+
+## Geliştirme
+
+    swift run MuzikOdam
