@@ -601,11 +601,12 @@ struct ContentView: View {
     @State private var selectedAlbum = ""
     @State private var selectedArtist = ""
     @State private var showingEqualizer = false
+    @State private var showingAppearanceSettings = false
     @State private var selectedTrackIDs: Set<String> = []
     @State private var playlistToRename: Playlist?
     @State private var renamedPlaylistName = ""
     @State private var playlistToDelete: Playlist?
-    var body: some View { HStack(spacing: 0) { sidebar; Divider(); VStack(spacing: 0) { header; if let message = player.message { Text(message).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.bottom, 8) }; trackList; Divider(); nowPlaying } }.background(Color(nsColor: .windowBackgroundColor)).sheet(isPresented: $showingEqualizer) { EqualizerView() }.sheet(isPresented: $isCreatingPlaylist) { VStack(spacing: 16) { Text(player.text("Yeni çalma listesi", "New playlist")).font(.title3.weight(.semibold)); TextField(player.text("Liste adı", "Playlist name"), text: $newPlaylistName).textFieldStyle(.roundedBorder); HStack { Button(player.text("Vazgeç", "Cancel")) { isCreatingPlaylist = false }; Spacer(); Button(player.text("Oluştur", "Create")) { player.createPlaylist(name: newPlaylistName); newPlaylistName = ""; isCreatingPlaylist = false }.buttonStyle(.borderedProminent) } }.padding(24).frame(width: 320) }.sheet(isPresented: Binding(get: { playlistToRename != nil }, set: { if !$0 { playlistToRename = nil } })) { VStack(spacing: 16) { Text(player.text("Playlist'i Yeniden Adlandır", "Rename Playlist")).font(.title3.weight(.semibold)); TextField(player.text("Playlist adı", "Playlist name"), text: $renamedPlaylistName).textFieldStyle(.roundedBorder); HStack { Button(player.text("Vazgeç", "Cancel")) { playlistToRename = nil }; Spacer(); Button(player.text("Kaydet", "Save")) { if let playlist = playlistToRename { player.renamePlaylist(playlist.id, name: renamedPlaylistName) }; playlistToRename = nil }.buttonStyle(.borderedProminent) } }.padding(24).frame(width: 320) }.alert(player.text("Playlist silinsin mi?", "Delete playlist?"), isPresented: Binding(get: { playlistToDelete != nil }, set: { if !$0 { playlistToDelete = nil } })) { Button(player.text("Vazgeç", "Cancel"), role: .cancel) { playlistToDelete = nil }; Button(player.text("Sil", "Delete"), role: .destructive) { if let playlist = playlistToDelete { player.deletePlaylist(playlist.id); if libraryView == .playlist(playlist.id) { libraryView = .all } }; playlistToDelete = nil } } message: { Text(player.text("Bu işlem yalnızca playlist'i siler. Müzik dosyalarınız Mac'inizde kalır.", "This removes only the playlist. Your music files stay on your Mac.")) }.sheet(isPresented: Binding(get: { !selectedAlbum.isEmpty }, set: { if !$0 { selectedAlbum = "" } })) { AlbumDetailView(album: selectedAlbum, tracks: player.tracks.filter { $0.album == selectedAlbum }) }.sheet(isPresented: Binding(get: { !selectedArtist.isEmpty }, set: { if !$0 { selectedArtist = "" } })) { ArtistDetailView(artist: selectedArtist, tracks: player.tracks.filter { $0.artist == selectedArtist }) } }
+    var body: some View { HStack(spacing: 0) { sidebar; Divider(); VStack(spacing: 0) { header; if let message = player.message { Text(message).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.bottom, 8) }; trackList; Divider(); nowPlaying } }.background(Color(nsColor: .windowBackgroundColor)).popover(isPresented: $showingAppearanceSettings, arrowEdge: .bottom) { AppearanceSettingsView() }.sheet(isPresented: $showingEqualizer) { EqualizerView() }.sheet(isPresented: $isCreatingPlaylist) { VStack(spacing: 16) { Text(player.text("Yeni çalma listesi", "New playlist")).font(.title3.weight(.semibold)); TextField(player.text("Liste adı", "Playlist name"), text: $newPlaylistName).textFieldStyle(.roundedBorder); HStack { Button(player.text("Vazgeç", "Cancel")) { isCreatingPlaylist = false }; Spacer(); Button(player.text("Oluştur", "Create")) { player.createPlaylist(name: newPlaylistName); newPlaylistName = ""; isCreatingPlaylist = false }.buttonStyle(.borderedProminent) } }.padding(24).frame(width: 320) }.sheet(isPresented: Binding(get: { playlistToRename != nil }, set: { if !$0 { playlistToRename = nil } })) { VStack(spacing: 16) { Text(player.text("Playlist'i Yeniden Adlandır", "Rename Playlist")).font(.title3.weight(.semibold)); TextField(player.text("Playlist adı", "Playlist name"), text: $renamedPlaylistName).textFieldStyle(.roundedBorder); HStack { Button(player.text("Vazgeç", "Cancel")) { playlistToRename = nil }; Spacer(); Button(player.text("Kaydet", "Save")) { if let playlist = playlistToRename { player.renamePlaylist(playlist.id, name: renamedPlaylistName) }; playlistToRename = nil }.buttonStyle(.borderedProminent) } }.padding(24).frame(width: 320) }.alert(player.text("Playlist silinsin mi?", "Delete playlist?"), isPresented: Binding(get: { playlistToDelete != nil }, set: { if !$0 { playlistToDelete = nil } })) { Button(player.text("Vazgeç", "Cancel"), role: .cancel) { playlistToDelete = nil }; Button(player.text("Sil", "Delete"), role: .destructive) { if let playlist = playlistToDelete { player.deletePlaylist(playlist.id); if libraryView == .playlist(playlist.id) { libraryView = .all } }; playlistToDelete = nil } } message: { Text(player.text("Bu işlem yalnızca playlist'i siler. Müzik dosyalarınız Mac'inizde kalır.", "This removes only the playlist. Your music files stay on your Mac.")) }.sheet(isPresented: Binding(get: { !selectedAlbum.isEmpty }, set: { if !$0 { selectedAlbum = "" } })) { AlbumDetailView(album: selectedAlbum, tracks: player.tracks.filter { $0.album == selectedAlbum }) }.sheet(isPresented: Binding(get: { !selectedArtist.isEmpty }, set: { if !$0 { selectedArtist = "" } })) { ArtistDetailView(artist: selectedArtist, tracks: player.tracks.filter { $0.artist == selectedArtist }) } }
     private var sidebar: some View { VStack(alignment: .leading, spacing: 22) {
         Label("Müzik Odam", systemImage: "music.note.house.fill").font(.title3.weight(.bold)).foregroundStyle(player.accent.color)
         VStack(alignment: .leading, spacing: 10) {
@@ -626,37 +627,11 @@ struct ContentView: View {
             }
         }
         Spacer()
-        Menu {
-            Menu(player.text("Dil", "Language")) {
-                ForEach(AppLanguage.allCases) { language in
-                    Button { player.language = language } label: {
-                        Label(language.title, systemImage: player.language == language ? "checkmark" : "")
-                    }
-                }
-            }
-            Menu(player.text("Görünüm", "Appearance")) {
-                ForEach(AppTheme.allCases) { theme in
-                    Button { player.theme = theme } label: {
-                        Label(theme.title(player.language), systemImage: player.theme == theme ? "checkmark" : "")
-                    }
-                }
-            }
-            Menu(player.text("Vurgu rengi", "Accent color")) {
-                ForEach(Accent.allCases) { accent in
-                    Button { player.accent = accent } label: {
-                        Label(accent.title(player.language), systemImage: player.accent == accent ? "checkmark" : "")
-                    }
-                }
-            }
-            Button { player.ambientEnabled.toggle() } label: {
-                Label(player.text("Ambient Efekt", "Ambient Effect"), systemImage: player.ambientEnabled ? "checkmark" : "")
-            }
-            Divider()
-            Button(player.text("Kurulum Ayarlarını Sıfırla", "Reset Setup"), action: player.resetOnboarding)
-        } label: {
+        Button { showingAppearanceSettings = true } label: {
             Label(player.text("Görünüm", "Appearance"), systemImage: "paintpalette")
         }
-        .menuStyle(.borderlessButton)
+        .buttonStyle(.plain)
+        .foregroundStyle(player.accent.color)
         Text(player.text("Müzikler yalnızca Mac’inizde kalır.", "Your music stays on your Mac.")).font(.caption).foregroundStyle(.secondary)
     }.padding(24).frame(width: 210, alignment: .leading).background(.quaternary.opacity(0.45)) }
     private var activePlaylist: Playlist? {
@@ -746,6 +721,55 @@ struct AlbumDetailView: View {
     let album: String
     let tracks: [Track]
     var body: some View { VStack(alignment: .leading, spacing: 16) { HStack { CoverArt(data: tracks.first?.coverData, size: 110, accent: player.accent.color); VStack(alignment: .leading) { Text(album).font(.title.bold()); Text(tracks.first?.artist ?? "").foregroundStyle(.secondary); if let year = tracks.first?.year { Text(year).font(.caption).foregroundStyle(.secondary) } }; Spacer(); Button(player.text("Tümünü Oynat", "Play All")) { player.play(tracks.first) }.buttonStyle(.borderedProminent); Button(player.text("Bitti", "Done")) { dismiss() } }; List(tracks) { track in Button { player.play(track) } label: { HStack { Text(track.title); Spacer(); if track.id == player.currentTrackID { Image(systemName: "speaker.wave.2.fill").foregroundStyle(player.accent.color) } } }.buttonStyle(.plain) } }.padding(28).frame(minWidth: 500, minHeight: 420) }
+}
+
+struct AppearanceSettingsView: View {
+    @EnvironmentObject private var player: MusicPlayer
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(player.text("Görünüm", "Appearance")).font(.headline)
+                Spacer()
+                Button(player.text("Bitti", "Done")) { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                Text(player.text("Dil", "Language")).font(.caption).foregroundStyle(.secondary)
+                Picker(player.text("Dil", "Language"), selection: $player.language) {
+                    ForEach(AppLanguage.allCases) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                Text(player.text("Tema", "Theme")).font(.caption).foregroundStyle(.secondary)
+                Picker(player.text("Tema", "Theme"), selection: $player.theme) {
+                    ForEach(AppTheme.allCases) { Text($0.title(player.language)).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+            }
+            HStack {
+                Text(player.text("Vurgu rengi", "Accent color"))
+                Spacer()
+                Picker(player.text("Vurgu rengi", "Accent color"), selection: $player.accent) {
+                    ForEach(Accent.allCases) { Text($0.title(player.language)).tag($0) }
+                }
+                .labelsHidden()
+                .frame(width: 130)
+            }
+            Toggle(player.text("Ambient Efekt", "Ambient Effect"), isOn: $player.ambientEnabled)
+            Divider()
+            Button(player.text("Kurulum Ayarlarını Sıfırla", "Reset Setup")) {
+                dismiss()
+                player.resetOnboarding()
+            }
+            .foregroundStyle(.red)
+        }
+        .padding(18)
+        .frame(width: 310)
+    }
 }
 
 struct EqualizerView: View {
