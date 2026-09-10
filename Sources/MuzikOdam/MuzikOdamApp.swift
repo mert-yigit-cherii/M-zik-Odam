@@ -17,7 +17,9 @@ struct MuzikOdamApp: App {
             }
             .environmentObject(player).environmentObject(converter).preferredColorScheme(player.theme.colorScheme).tint(player.accent.color).frame(minWidth: 780, minHeight: 520)
         }
-        .windowStyle(.hiddenTitleBar)
+        // Keep the native macOS title bar visible: it reserves safe space for the
+        // close, minimize, and zoom controls instead of allowing content to overlap them.
+        .windowStyle(.titleBar)
         WindowGroup(id: "mini-player") {
             MiniPlayerView().environmentObject(player).preferredColorScheme(player.theme.colorScheme).tint(player.accent.color)
         }
