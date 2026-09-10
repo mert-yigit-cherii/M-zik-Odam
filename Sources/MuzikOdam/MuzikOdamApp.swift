@@ -20,6 +20,7 @@ struct MuzikOdamApp: App {
         MenuBarExtra("Müzik Odam", systemImage: "music.note") {
             MenuBarNowPlayingView().environmentObject(player)
         }
+        .menuBarExtraStyle(.window)
         .commands {
             CommandGroup(after: .newItem) {
                 Button(player.text("Müzik Ekle…", "Add Music…")) { player.pickFiles() }.keyboardShortcut("o", modifiers: .command)
@@ -625,7 +626,37 @@ struct ContentView: View {
             }
         }
         Spacer()
-        Menu { Picker(player.text("Dil", "Language"), selection: $player.language) { ForEach(AppLanguage.allCases) { Text($0.title).tag($0) } }; Picker(player.text("Görünüm", "Appearance"), selection: $player.theme) { ForEach(AppTheme.allCases) { Text($0.title(player.language)).tag($0) } }; Picker(player.text("Vurgu rengi", "Accent color"), selection: $player.accent) { ForEach(Accent.allCases) { Text($0.title(player.language)).tag($0) } }; Toggle(player.text("Ambient Efekt", "Ambient Effect"), isOn: $player.ambientEnabled); Divider(); Button(player.text("Kurulum Ayarlarını Sıfırla", "Reset Setup"), action: player.resetOnboarding) } label: { Label(player.text("Görünüm", "Appearance"), systemImage: "paintpalette") }.menuStyle(.borderlessButton)
+        Menu {
+            Menu(player.text("Dil", "Language")) {
+                ForEach(AppLanguage.allCases) { language in
+                    Button { player.language = language } label: {
+                        Label(language.title, systemImage: player.language == language ? "checkmark" : "")
+                    }
+                }
+            }
+            Menu(player.text("Görünüm", "Appearance")) {
+                ForEach(AppTheme.allCases) { theme in
+                    Button { player.theme = theme } label: {
+                        Label(theme.title(player.language), systemImage: player.theme == theme ? "checkmark" : "")
+                    }
+                }
+            }
+            Menu(player.text("Vurgu rengi", "Accent color")) {
+                ForEach(Accent.allCases) { accent in
+                    Button { player.accent = accent } label: {
+                        Label(accent.title(player.language), systemImage: player.accent == accent ? "checkmark" : "")
+                    }
+                }
+            }
+            Button { player.ambientEnabled.toggle() } label: {
+                Label(player.text("Ambient Efekt", "Ambient Effect"), systemImage: player.ambientEnabled ? "checkmark" : "")
+            }
+            Divider()
+            Button(player.text("Kurulum Ayarlarını Sıfırla", "Reset Setup"), action: player.resetOnboarding)
+        } label: {
+            Label(player.text("Görünüm", "Appearance"), systemImage: "paintpalette")
+        }
+        .menuStyle(.borderlessButton)
         Text(player.text("Müzikler yalnızca Mac’inizde kalır.", "Your music stays on your Mac.")).font(.caption).foregroundStyle(.secondary)
     }.padding(24).frame(width: 210, alignment: .leading).background(.quaternary.opacity(0.45)) }
     private var activePlaylist: Playlist? {
@@ -767,5 +798,28 @@ struct CoverArt: View {
 
 struct MenuBarNowPlayingView: View {
     @EnvironmentObject private var player: MusicPlayer
-    var body: some View { VStack(alignment: .leading, spacing: 10) { HStack { CoverArt(data: player.currentTrack?.coverData, size: 42, accent: player.accent.color); VStack(alignment: .leading) { Text(player.currentTrack?.title ?? player.text("Bir parça seç", "Choose a track")).lineLimit(1); Text(player.currentTrack?.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1) } }; Slider(value: Binding(get: { player.currentTime }, set: player.seek), in: 0...max(player.duration, 1)); HStack { Button(action: player.previous) { Image(systemName: "backward.fill") }; Spacer(); Button(action: player.togglePlayback) { Image(systemName: player.isPlaying ? "pause.fill" : "play.fill") }; Spacer(); Button(action: player.next) { Image(systemName: "forward.fill") } }.buttonStyle(.borderless) }.padding(12).frame(width: 260) }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                CoverArt(data: player.currentTrack?.coverData, size: 42, accent: player.accent.color)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(player.currentTrack?.title ?? player.text("Bir parça seç", "Choose a track")).lineLimit(1)
+                    Text(player.currentTrack?.artist ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Slider(value: Binding(get: { player.currentTime }, set: player.seek), in: 0...max(player.duration, 1))
+            HStack(spacing: 12) {
+                Button(action: player.previous) { Image(systemName: "backward.fill").frame(width: 24, height: 24) }
+                    .help(player.text("Önceki Parça", "Previous Track"))
+                Button(action: player.togglePlayback) { Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").frame(width: 24, height: 24) }
+                    .help(player.isPlaying ? player.text("Duraklat", "Pause") : player.text("Çal", "Play"))
+                Button(action: player.next) { Image(systemName: "forward.fill").frame(width: 24, height: 24) }
+                    .help(player.text("Sonraki Parça", "Next Track"))
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .buttonStyle(.bordered)
+        }
+        .padding(12)
+        .frame(width: 260)
+    }
 }
