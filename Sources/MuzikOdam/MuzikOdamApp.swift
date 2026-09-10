@@ -9,14 +9,19 @@ import ImageIO
 @main
 struct MuzikOdamApp: App {
     @StateObject private var player = MusicPlayer()
+    @StateObject private var converter = ConverterStore()
     var body: some Scene {
         WindowGroup {
             Group {
                 if player.hasCompletedOnboarding { ContentView() } else { OnboardingView() }
             }
-            .environmentObject(player).preferredColorScheme(player.theme.colorScheme).tint(player.accent.color).frame(minWidth: 780, minHeight: 520)
+            .environmentObject(player).environmentObject(converter).preferredColorScheme(player.theme.colorScheme).tint(player.accent.color).frame(minWidth: 780, minHeight: 520)
         }
         .windowStyle(.hiddenTitleBar)
+        WindowGroup(id: "mini-player") {
+            MiniPlayerView().environmentObject(player).preferredColorScheme(player.theme.colorScheme).tint(player.accent.color)
+        }
+        .windowResizability(.contentSize)
         MenuBarExtra("Müzik Odam", systemImage: "music.note") {
             MenuBarNowPlayingView().environmentObject(player)
         }
@@ -29,6 +34,13 @@ struct MuzikOdamApp: App {
                 Button(player.isPlaying ? player.text("Duraklat", "Pause") : player.text("Çal", "Play")) { player.togglePlayback() }.keyboardShortcut(.space, modifiers: [])
                 Button(player.text("Sonraki Parça", "Next Track")) { player.next() }.keyboardShortcut(.rightArrow, modifiers: [.command])
                 Button(player.text("Önceki Parça", "Previous Track")) { player.previous() }.keyboardShortcut(.leftArrow, modifiers: [.command])
+                Divider()
+                Button(player.text("Kütüphane", "Library")) { player.requestedNavigation = .library }.keyboardShortcut("l", modifiers: .command)
+                Button(player.text("Ara", "Search")) { player.requestedNavigation = .search }.keyboardShortcut("f", modifiers: .command)
+                Button(player.text("Playlistler", "Playlists")) { player.requestedNavigation = .playlists }.keyboardShortcut("p", modifiers: .command)
+                Button(player.text("Equalizer", "Equalizer")) { player.requestedNavigation = .equalizer }.keyboardShortcut("e", modifiers: .command)
+                Button(player.text("Favoriyi Değiştir", "Toggle Favorite")) { player.requestedNavigation = .toggleFavorite }.keyboardShortcut("f", modifiers: [.command, .shift])
+                Button(player.text("Ayarlar", "Settings")) { player.requestedNavigation = .appearance }.keyboardShortcut(",", modifiers: .command)
             }
         }
     }
@@ -193,6 +205,8 @@ struct Track: Identifiable, Equatable, Codable {
     var album: String
     var year: String?
     var coverData: Data?
+    var genre: String = ""
+    var duration: TimeInterval = 0
     var id: String { url.standardizedFileURL.path }
     var format: String { url.pathExtension.uppercased() }
     func subtitle(language: AppLanguage) -> String {
@@ -216,10 +230,12 @@ struct Track: Identifiable, Equatable, Codable {
         let title = await value(.commonKeyTitle)
         let artist = await value(.commonKeyArtist)
         let album = await value(.commonKeyAlbumName)
+        let genre = await value(.commonKeyType)
         let year = await value(.commonKeyCreationDate)?.prefix(4).description
         let artwork: Data?
         if let item = metadata.first(where: { $0.commonKey == .commonKeyArtwork }) { artwork = try? await item.load(.dataValue) } else { artwork = nil }
-        return Track(url: url, title: title.flatMap { $0.isEmpty ? nil : $0 } ?? cleaned(filenameTitle), artist: artist ?? cleaned(filenameArtist), album: album ?? "", year: year, coverData: artwork.flatMap { ArtworkThumbnailer.thumbnailData(from: $0) } ?? artwork)
+        let duration = (try? await asset.load(.duration))?.seconds ?? 0
+        return Track(url: url, title: title.flatMap { $0.isEmpty ? nil : $0 } ?? cleaned(filenameTitle), artist: artist ?? cleaned(filenameArtist), album: album ?? "", year: year, coverData: artwork.flatMap { ArtworkThumbnailer.thumbnailData(from: $0) } ?? artwork, genre: genre ?? "", duration: duration.isFinite ? duration : 0)
     }
 }
 
@@ -294,6 +310,7 @@ final class MusicPlayer: NSObject, ObservableObject {
     @Published var duration: TimeInterval = 0
     @Published var volume: Double = 0.8 { didSet { player.volume = Float(volume); applyEqualizer() } }
     @Published var message: String?
+    @Published var requestedNavigation: NavigationRequest?
     @Published var theme: AppTheme { didSet { UserDefaults.standard.set(theme.rawValue, forKey: "theme") } }
     @Published var accent: Accent { didSet { UserDefaults.standard.set(accent.rawValue, forKey: "accent") } }
     @Published var favoriteIDs: Set<String> = [] { didSet { UserDefaults.standard.set(Array(favoriteIDs), forKey: "favoriteIDs") } }
@@ -301,6 +318,10 @@ final class MusicPlayer: NSObject, ObservableObject {
     @Published var shuffleEnabled = false { didSet { UserDefaults.standard.set(shuffleEnabled, forKey: "shuffleEnabled") } }
     @Published var repeatMode: RepeatMode = .off { didSet { UserDefaults.standard.set(repeatMode.rawValue, forKey: "repeatMode") } }
     @Published var sortOrder: LibrarySort = .title { didSet { UserDefaults.standard.set(sortOrder.rawValue, forKey: "sortOrder") } }
+    @Published var advancedSort: AdvancedLibrarySort = .title { didSet { UserDefaults.standard.set(advancedSort.rawValue, forKey: "advancedSort") } }
+    @Published var sortDirection: SortDirection = .ascending { didSet { UserDefaults.standard.set(sortDirection.rawValue, forKey: "sortDirection") } }
+    @Published var libraryFilter = LibraryFilter()
+    @Published private(set) var trackStatistics: [String: TrackStatistics] = [:] { didSet { UserDefaults.standard.set(try? JSONEncoder().encode(trackStatistics), forKey: "trackStatistics") } }
     @Published var playlists: [Playlist] = [] { didSet { UserDefaults.standard.set(try? JSONEncoder().encode(playlists), forKey: "playlists") } }
     @Published var language: AppLanguage = .turkish { didSet { UserDefaults.standard.set(language.rawValue, forKey: "language") } }
     @Published var hasCompletedOnboarding = false { didSet { UserDefaults.standard.set(hasCompletedOnboarding, forKey: "hasCompletedOnboarding") } }
@@ -315,6 +336,8 @@ final class MusicPlayer: NSObject, ObservableObject {
         }
     }
     @Published private(set) var ambientPalette = AmbientPalette.fallback
+    @Published private(set) var upNextTrackIDs: [String] = [] { didSet { saveQueueState() } }
+    @Published private(set) var playbackHistoryTrackIDs: [String] = [] { didSet { saveQueueState() } }
     private let player = AVPlayer(); private let enricher = MetadataEnricher()
     private var scanTimer: Timer?; private var scanTask: Task<Void, Never>?; private var isScanning = false; private var endObserver: NSObjectProtocol?; private var libraryFolder: URL?
     private var timeObserver: Any?; private var itemStatusObservation: NSKeyValueObservation?; private var timeControlObservation: NSKeyValueObservation?
@@ -324,6 +347,8 @@ final class MusicPlayer: NSObject, ObservableObject {
     private var engineFile: AVAudioFile?; private var engineTimer: Timer?; private var engineBaseTime: TimeInterval = 0; private var engineStartedAt: Date?; private var usingEngine = false
     private var playbackQueueTrackIDs: [String] = []
     private var playbackPlaylistID: String?
+    private var playTrackingID: String?
+    private var hasRecordedPlay = false
     var currentTrack: Track? { tracks.first { $0.id == currentTrackID } }
     override init() {
         theme = AppTheme(rawValue: UserDefaults.standard.string(forKey: "theme") ?? "system") ?? .system
@@ -334,6 +359,9 @@ final class MusicPlayer: NSObject, ObservableObject {
         shuffleEnabled = UserDefaults.standard.bool(forKey: "shuffleEnabled")
         repeatMode = RepeatMode(rawValue: UserDefaults.standard.string(forKey: "repeatMode") ?? "off") ?? .off
         sortOrder = LibrarySort(rawValue: UserDefaults.standard.string(forKey: "sortOrder") ?? "title") ?? .title
+        advancedSort = AdvancedLibrarySort(rawValue: UserDefaults.standard.string(forKey: "advancedSort") ?? "title") ?? .title
+        sortDirection = SortDirection(rawValue: UserDefaults.standard.string(forKey: "sortDirection") ?? "ascending") ?? .ascending
+        if let data = UserDefaults.standard.data(forKey: "trackStatistics") { trackStatistics = (try? JSONDecoder().decode([String: TrackStatistics].self, from: data)) ?? [:] }
         language = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "language") ?? "turkish") ?? .turkish
         hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "hasCompletedOnboarding")
         libraryDisplay = LibraryDisplay(rawValue: UserDefaults.standard.string(forKey: "libraryDisplay") ?? "list") ?? .list
@@ -343,6 +371,10 @@ final class MusicPlayer: NSObject, ObservableObject {
         configureAudioEngine()
         ambientEnabled = UserDefaults.standard.object(forKey: "ambientEnabled") as? Bool ?? true
         if let data = UserDefaults.standard.data(forKey: "playlists") { playlists = (try? JSONDecoder().decode([Playlist].self, from: data)) ?? [] }
+        if let data = UserDefaults.standard.data(forKey: "playbackQueueState"), let state = try? JSONDecoder().decode(PlaybackQueueState.self, from: data) {
+            upNextTrackIDs = state.upNextTrackIDs
+            playbackHistoryTrackIDs = state.historyTrackIDs
+        }
         libraryFolder = UserDefaults.standard.string(forKey: "libraryFolder").map(URL.init(fileURLWithPath:))
         refreshLibrary()
         scanTimer = Timer.scheduledTimer(timeInterval: 60, target: self, selector: #selector(refreshLibrary), userInfo: nil, repeats: true)
@@ -353,6 +385,7 @@ final class MusicPlayer: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 self?.currentTime = current
                 self?.duration = duration.isFinite ? duration : 0
+                self?.recordListeningProgress()
                 self?.updateNowPlayingIfNeeded()
             }
         }
@@ -367,7 +400,7 @@ final class MusicPlayer: NSObject, ObservableObject {
     }
     func pickFiles() {
         let panel = NSOpenPanel(); panel.title = text("Müzik dosyalarını seç", "Choose music files"); panel.allowsMultipleSelection = true; panel.canChooseDirectories = false; panel.allowedContentTypes = Self.supportedExtensions.compactMap { UTType(filenameExtension: $0) }
-        guard panel.runModal() == .OK else { return }; add(urls: panel.urls)
+        guard panel.runModal() == .OK else { return }; addFiles(panel.urls)
     }
     func pickLibraryFolder() {
         let panel = NSOpenPanel(); panel.title = text("Müzik klasörünü seç", "Choose music folder"); panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
@@ -410,16 +443,33 @@ final class MusicPlayer: NSObject, ObservableObject {
             self?.add(tracks: scanned)
         }
     }
-    private func add(urls: [URL]) {
+    func addFiles(_ urls: [URL]) {
         Task { [weak self] in
             var parsed: [Track] = []
             for url in urls { parsed.append(await Track.read(from: url)) }
             self?.add(tracks: parsed)
         }
     }
+    func importDroppedURL(_ url: URL) {
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+        guard values?.isDirectory == true else { addFiles([url]); return }
+        let supported = Self.supportedExtensions
+        Task { [weak self] in
+            let urls = await Task.detached(priority: .utility) {
+                guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [URL]() }
+                return enumerator.compactMap { $0 as? URL }.filter { candidate in
+                    supported.contains(candidate.pathExtension.lowercased()) && (try? candidate.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+                }
+            }.value
+            self?.addFiles(urls)
+        }
+    }
     private func add(tracks newTracks: [Track]) {
         let known = Set(tracks.map(\.id)); let newTracks = newTracks.filter { !known.contains($0.id) }
-        guard !newTracks.isEmpty else { return }; tracks.append(contentsOf: newTracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }); enricher.enqueue(newTracks) { [weak self] updated in self?.replace(updated) }
+        guard !newTracks.isEmpty else { return }
+        for track in newTracks where trackStatistics[track.id] == nil { trackStatistics[track.id] = TrackStatistics() }
+        tracks.append(contentsOf: newTracks.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending })
+        enricher.enqueue(newTracks) { [weak self] updated in self?.replace(updated) }
     }
     private func replace(_ track: Track) { guard let index = tracks.firstIndex(where: { $0.id == track.id }) else { return }; tracks[index] = track; if track.id == currentTrackID { updateNowPlaying(force: true) } }
     private func configureAudioEngine() {
@@ -458,14 +508,15 @@ final class MusicPlayer: NSObject, ObservableObject {
         do { if !audioEngine.isRunning { try audioEngine.start() } } catch { message = text("Ses işleme başlatılamadı: \(error.localizedDescription)", "Audio processing could not start: \(error.localizedDescription)"); return false }
         engineFile = file; usingEngine = true; engineBaseTime = 0; engineStartedAt = Date(); duration = Double(file.length) / file.processingFormat.sampleRate
         audioNode.scheduleFile(file, at: nil) { [weak self] in DispatchQueue.main.async { self?.advanceAfterPlayback() } }
-        audioNode.play(); currentTrackID = track.id; isPlaying = true; updateAmbientArtwork(for: track); startEngineTimer(); updateNowPlaying(force: true)
+        audioNode.play(); currentTrackID = track.id; beginPlaybackTracking(for: track); isPlaying = true; updateAmbientArtwork(for: track); startEngineTimer(); updateNowPlaying(force: true)
         return true
     }
     private func startEngineTimer() { engineTimer?.invalidate(); engineTimer = Timer.scheduledTimer(timeInterval: 0.25, target: self, selector: #selector(updateEngineProgress), userInfo: nil, repeats: true) }
-    @objc private func updateEngineProgress() { guard usingEngine, let started = engineStartedAt else { return }; currentTime = engineBaseTime + Date().timeIntervalSince(started); if currentTime >= duration { currentTime = duration }; updateNowPlayingIfNeeded() }
+    @objc private func updateEngineProgress() { guard usingEngine, let started = engineStartedAt else { return }; currentTime = engineBaseTime + Date().timeIntervalSince(started); if currentTime >= duration { currentTime = duration }; recordListeningProgress(); updateNowPlayingIfNeeded() }
     func play(_ track: Track?, preserveQueue: Bool = false) {
         guard let track else { return }
         message = nil
+        if currentTrackID != track.id, let currentTrackID { playbackHistoryTrackIDs.append(currentTrackID); playbackHistoryTrackIDs = Array(playbackHistoryTrackIDs.suffix(100)) }
         if !preserveQueue {
             playbackQueueTrackIDs = tracks.map(\.id)
             playbackPlaylistID = nil
@@ -487,7 +538,7 @@ final class MusicPlayer: NSObject, ObservableObject {
                     DispatchQueue.main.async { self?.playbackFailed(item.error?.localizedDescription ?? self?.text("Dosya açılamadı.", "The file could not be opened.") ?? "The file could not be opened.") }
                 }
                 self.player.replaceCurrentItem(with: item)
-                self.player.play(); self.currentTrackID = track.id; self.updateAmbientArtwork(for: track)
+                self.player.play(); self.currentTrackID = track.id; self.beginPlaybackTracking(for: track); self.updateAmbientArtwork(for: track)
                 self.updateNowPlaying(force: true)
                 self.recentlyPlayedIDs.removeAll { $0 == track.id }
                 self.recentlyPlayedIDs.insert(track.id, at: 0)
@@ -503,6 +554,12 @@ final class MusicPlayer: NSObject, ObservableObject {
         return ids.compactMap { byID[$0] }
     }
     func next() {
+        if let queuedID = upNextTrackIDs.first, let queuedTrack = tracks.first(where: { $0.id == queuedID }) {
+            upNextTrackIDs.removeFirst()
+            play(queuedTrack, preserveQueue: true)
+            return
+        }
+        recordSkipIfNeeded()
         let queue = activeQueue
         guard !queue.isEmpty else { return }
         guard let index = queue.firstIndex(where: { $0.id == currentTrackID }) else { play(queue.first, preserveQueue: true); return }
@@ -511,6 +568,11 @@ final class MusicPlayer: NSObject, ObservableObject {
         play(queue[(index + 1) % queue.count], preserveQueue: true)
     }
     func previous() {
+        recordSkipIfNeeded()
+        if let previousID = playbackHistoryTrackIDs.popLast(), let previousTrack = tracks.first(where: { $0.id == previousID }) {
+            play(previousTrack, preserveQueue: true)
+            return
+        }
         let queue = activeQueue
         guard let index = queue.firstIndex(where: { $0.id == currentTrackID }), !queue.isEmpty else { return }
         play(queue[(index - 1 + queue.count) % queue.count], preserveQueue: true)
@@ -538,10 +600,55 @@ final class MusicPlayer: NSObject, ObservableObject {
         play(first, preserveQueue: true)
     }
     func cycleRepeatMode() { repeatMode = repeatMode == .off ? .all : (repeatMode == .all ? .one : .off) }
-    private func advanceAfterPlayback() { if repeatMode == .one { play(currentTrack, preserveQueue: true) } else { next() } }
+    var upNextTracks: [Track] {
+        let byID = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
+        return upNextTrackIDs.compactMap { byID[$0] }
+    }
+    func playNext(_ track: Track) {
+        upNextTrackIDs.removeAll { $0 == track.id }
+        upNextTrackIDs.insert(track.id, at: 0)
+    }
+    func playLater(_ track: Track) {
+        upNextTrackIDs.removeAll { $0 == track.id }
+        upNextTrackIDs.append(track.id)
+    }
+    func removeFromUpNext(_ track: Track) { upNextTrackIDs.removeAll { $0 == track.id } }
+    func moveUpNext(from offsets: IndexSet, to destination: Int) { upNextTrackIDs.move(fromOffsets: offsets, toOffset: destination) }
+    func clearUpNext() { upNextTrackIDs.removeAll() }
+    private func saveQueueState() { UserDefaults.standard.set(try? JSONEncoder().encode(PlaybackQueueState(upNextTrackIDs: upNextTrackIDs, historyTrackIDs: playbackHistoryTrackIDs)), forKey: "playbackQueueState") }
+    private func advanceAfterPlayback() { recordListeningProgress(force: true); if repeatMode == .one { play(currentTrack, preserveQueue: true) } else { next() } }
     func remove(_ track: Track) { if track.id == currentTrackID { stopPlayback() }; tracks.removeAll { $0.id == track.id } }
     private func playbackFailed(_ reason: String) { stopPlayback(); message = text("Bu dosya çalınamadı: \(reason)", "This file could not be played: \(reason)") }
-    private func stopPlayback() { player.pause(); player.replaceCurrentItem(with: nil); audioNode.stop(); engineTimer?.invalidate(); usingEngine = false; engineFile = nil; currentTrackID = nil; ambientPalette = .fallback; isPlaying = false; currentTime = 0; duration = 0; itemStatusObservation = nil; MPNowPlayingInfoCenter.default().nowPlayingInfo = nil; MPNowPlayingInfoCenter.default().playbackState = .stopped; if let accessedURL { accessedURL.stopAccessingSecurityScopedResource(); self.accessedURL = nil } }
+    private func stopPlayback() { recordSkipIfNeeded(); player.pause(); player.replaceCurrentItem(with: nil); audioNode.stop(); engineTimer?.invalidate(); usingEngine = false; engineFile = nil; currentTrackID = nil; playTrackingID = nil; ambientPalette = .fallback; isPlaying = false; currentTime = 0; duration = 0; itemStatusObservation = nil; MPNowPlayingInfoCenter.default().nowPlayingInfo = nil; MPNowPlayingInfoCenter.default().playbackState = .stopped; if let accessedURL { accessedURL.stopAccessingSecurityScopedResource(); self.accessedURL = nil } }
+
+    private func beginPlaybackTracking(for track: Track) { playTrackingID = track.id; hasRecordedPlay = false }
+    private func recordListeningProgress(force: Bool = false) {
+        guard let id = playTrackingID, !hasRecordedPlay else { return }
+        let threshold = min(30.0, max(8.0, duration * 0.5))
+        guard force || currentTime >= threshold else { return }
+        var stats = trackStatistics[id] ?? TrackStatistics()
+        stats.playCount += 1
+        stats.lastPlayedDate = .now
+        trackStatistics[id] = stats
+        hasRecordedPlay = true
+    }
+    private func recordSkipIfNeeded() {
+        guard let id = playTrackingID, !hasRecordedPlay, currentTime > 2 else { return }
+        var stats = trackStatistics[id] ?? TrackStatistics()
+        stats.skipCount += 1
+        trackStatistics[id] = stats
+    }
+
+    func statistics(for track: Track) -> TrackStatistics { trackStatistics[track.id] ?? TrackStatistics() }
+    func smartPlaylistTracks(_ kind: SmartPlaylistKind) -> [Track] {
+        switch kind {
+        case .favorites: return tracks.filter { favoriteIDs.contains($0.id) }
+        case .recentlyPlayed: return tracks.sorted { (statistics(for: $0).lastPlayedDate ?? .distantPast) > (statistics(for: $1).lastPlayedDate ?? .distantPast) }.filter { statistics(for: $0).lastPlayedDate != nil }
+        case .recentlyAdded: return tracks.sorted { statistics(for: $0).dateAdded > statistics(for: $1).dateAdded }
+        case .mostPlayed: return tracks.sorted { statistics(for: $0).playCount > statistics(for: $1).playCount }.filter { statistics(for: $0).playCount > 0 }
+        case .unplayed: return tracks.filter { statistics(for: $0).playCount == 0 }
+        }
+    }
     private func updateNowPlayingIfNeeded() { if Date.timeIntervalSinceReferenceDate - lastNowPlayingUpdate > 1 { updateNowPlaying(force: false) } }
     private func updateNowPlaying(force: Bool) {
         guard let track = currentTrack else { return }
@@ -564,10 +671,11 @@ final class MusicPlayer: NSObject, ObservableObject {
     deinit { scanTimer?.invalidate(); engineTimer?.invalidate(); audioNode.stop(); audioEngine.stop(); if let timeObserver { player.removeTimeObserver(timeObserver) }; if let endObserver { NotificationCenter.default.removeObserver(endObserver) }; if let accessedURL { accessedURL.stopAccessingSecurityScopedResource() }; MPNowPlayingInfoCenter.default().nowPlayingInfo = nil }
 }
 
-private enum LibraryView: Equatable { case all, favorites, recent, playlist(String) }
+private enum LibraryView: Equatable { case all, favorites, recent, smart(SmartPlaylistKind), playlist(String) }
 
 struct OnboardingView: View {
     @EnvironmentObject private var player: MusicPlayer
+    @EnvironmentObject private var converter: ConverterStore
     @State private var step = 0
     var body: some View {
         VStack(spacing: 26) {
@@ -594,6 +702,7 @@ struct OnboardingView: View {
 
 struct ContentView: View {
     @EnvironmentObject private var player: MusicPlayer
+    @Environment(\.openWindow) private var openWindow
     @State private var libraryView: LibraryView = .all
     @State private var searchText = ""
     @State private var isCreatingPlaylist = false
@@ -606,16 +715,29 @@ struct ContentView: View {
     @State private var playlistToRename: Playlist?
     @State private var renamedPlaylistName = ""
     @State private var playlistToDelete: Playlist?
-    var body: some View { HStack(spacing: 0) { sidebar; Divider(); VStack(spacing: 0) { header; if let message = player.message { Text(message).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.bottom, 8) }; trackList; Divider(); nowPlaying } }.background(Color(nsColor: .windowBackgroundColor)).popover(isPresented: $showingAppearanceSettings, arrowEdge: .bottom) { AppearanceSettingsView() }.sheet(isPresented: $showingEqualizer) { EqualizerView() }.sheet(isPresented: $isCreatingPlaylist) { VStack(spacing: 16) { Text(player.text("Yeni çalma listesi", "New playlist")).font(.title3.weight(.semibold)); TextField(player.text("Liste adı", "Playlist name"), text: $newPlaylistName).textFieldStyle(.roundedBorder); HStack { Button(player.text("Vazgeç", "Cancel")) { isCreatingPlaylist = false }; Spacer(); Button(player.text("Oluştur", "Create")) { player.createPlaylist(name: newPlaylistName); newPlaylistName = ""; isCreatingPlaylist = false }.buttonStyle(.borderedProminent) } }.padding(24).frame(width: 320) }.sheet(isPresented: Binding(get: { playlistToRename != nil }, set: { if !$0 { playlistToRename = nil } })) { VStack(spacing: 16) { Text(player.text("Playlist'i Yeniden Adlandır", "Rename Playlist")).font(.title3.weight(.semibold)); TextField(player.text("Playlist adı", "Playlist name"), text: $renamedPlaylistName).textFieldStyle(.roundedBorder); HStack { Button(player.text("Vazgeç", "Cancel")) { playlistToRename = nil }; Spacer(); Button(player.text("Kaydet", "Save")) { if let playlist = playlistToRename { player.renamePlaylist(playlist.id, name: renamedPlaylistName) }; playlistToRename = nil }.buttonStyle(.borderedProminent) } }.padding(24).frame(width: 320) }.alert(player.text("Playlist silinsin mi?", "Delete playlist?"), isPresented: Binding(get: { playlistToDelete != nil }, set: { if !$0 { playlistToDelete = nil } })) { Button(player.text("Vazgeç", "Cancel"), role: .cancel) { playlistToDelete = nil }; Button(player.text("Sil", "Delete"), role: .destructive) { if let playlist = playlistToDelete { player.deletePlaylist(playlist.id); if libraryView == .playlist(playlist.id) { libraryView = .all } }; playlistToDelete = nil } } message: { Text(player.text("Bu işlem yalnızca playlist'i siler. Müzik dosyalarınız Mac'inizde kalır.", "This removes only the playlist. Your music files stay on your Mac.")) }.sheet(isPresented: Binding(get: { !selectedAlbum.isEmpty }, set: { if !$0 { selectedAlbum = "" } })) { AlbumDetailView(album: selectedAlbum, tracks: player.tracks.filter { $0.album == selectedAlbum }) }.sheet(isPresented: Binding(get: { !selectedArtist.isEmpty }, set: { if !$0 { selectedArtist = "" } })) { ArtistDetailView(artist: selectedArtist, tracks: player.tracks.filter { $0.artist == selectedArtist }) } }
+    @FocusState private var searchFocused: Bool
+    @State private var showingQueue = false
+    @State private var selectedTrackInfo: Track?
+    @State private var showingConverter = false
+    var body: some View { HStack(spacing: 0) { sidebar; Divider(); VStack(spacing: 0) { header; if let message = player.message { Text(message).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 28).padding(.bottom, 8) }; trackList; Divider(); nowPlaying } }.background(Color(nsColor: .windowBackgroundColor)).onChange(of: player.requestedNavigation) { _, request in handleNavigation(request) }.popover(isPresented: $showingAppearanceSettings, arrowEdge: .bottom) { AppearanceSettingsView() }.sheet(isPresented: $showingEqualizer) { EqualizerView() }.sheet(isPresented: $showingConverter) { ConverterView() }.sheet(isPresented: $showingQueue) { UpNextView() }.sheet(item: $selectedTrackInfo) { TrackInfoView(track: $0) }.sheet(isPresented: $isCreatingPlaylist) { VStack(spacing: 16) { Text(player.text("Yeni çalma listesi", "New playlist")).font(.title3.weight(.semibold)); TextField(player.text("Liste adı", "Playlist name"), text: $newPlaylistName).textFieldStyle(.roundedBorder); HStack { Button(player.text("Vazgeç", "Cancel")) { isCreatingPlaylist = false }; Spacer(); Button(player.text("Oluştur", "Create")) { player.createPlaylist(name: newPlaylistName); newPlaylistName = ""; isCreatingPlaylist = false }.buttonStyle(.borderedProminent) } }.padding(24).frame(width: 320) }.sheet(isPresented: Binding(get: { playlistToRename != nil }, set: { if !$0 { playlistToRename = nil } })) { VStack(spacing: 16) { Text(player.text("Playlist'i Yeniden Adlandır", "Rename Playlist")).font(.title3.weight(.semibold)); TextField(player.text("Playlist adı", "Playlist name"), text: $renamedPlaylistName).textFieldStyle(.roundedBorder); HStack { Button(player.text("Vazgeç", "Cancel")) { playlistToRename = nil }; Spacer(); Button(player.text("Kaydet", "Save")) { if let playlist = playlistToRename { player.renamePlaylist(playlist.id, name: renamedPlaylistName) }; playlistToRename = nil }.buttonStyle(.borderedProminent) } }.padding(24).frame(width: 320) }.alert(player.text("Playlist silinsin mi?", "Delete playlist?"), isPresented: Binding(get: { playlistToDelete != nil }, set: { if !$0 { playlistToDelete = nil } })) { Button(player.text("Vazgeç", "Cancel"), role: .cancel) { playlistToDelete = nil }; Button(player.text("Sil", "Delete"), role: .destructive) { if let playlist = playlistToDelete { player.deletePlaylist(playlist.id); if libraryView == .playlist(playlist.id) { libraryView = .all } }; playlistToDelete = nil } } message: { Text(player.text("Bu işlem yalnızca playlist'i siler. Müzik dosyalarınız Mac'inizde kalır.", "This removes only the playlist. Your music files stay on your Mac.")) }.sheet(isPresented: Binding(get: { !selectedAlbum.isEmpty }, set: { if !$0 { selectedAlbum = "" } })) { AlbumDetailView(album: selectedAlbum, tracks: player.tracks.filter { $0.album == selectedAlbum }) }.sheet(isPresented: Binding(get: { !selectedArtist.isEmpty }, set: { if !$0 { selectedArtist = "" } })) { ArtistDetailView(artist: selectedArtist, tracks: player.tracks.filter { $0.artist == selectedArtist }) } }
     private var sidebar: some View { VStack(alignment: .leading, spacing: 22) {
         Label("Müzik Odam", systemImage: "music.note.house.fill").font(.title3.weight(.bold)).foregroundStyle(player.accent.color)
         VStack(alignment: .leading, spacing: 10) {
             Button { libraryView = .all } label: { Label(player.text("Kütüphanem", "Library"), systemImage: "music.note.list") }.buttonStyle(.plain).fontWeight(libraryView == .all ? .semibold : .regular)
             Button { libraryView = .favorites } label: { Label(player.text("Favoriler", "Favorites"), systemImage: "heart.fill") }.buttonStyle(.plain).foregroundStyle(libraryView == .favorites ? player.accent.color : .primary)
             Button { libraryView = .recent } label: { Label(player.text("Son Çalınanlar", "Recently Played"), systemImage: "clock.arrow.circlepath") }.buttonStyle(.plain).foregroundStyle(libraryView == .recent ? player.accent.color : .primary)
+            Divider()
+            Text(player.text("Akıllı Listeler", "Smart Playlists")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            ForEach(SmartPlaylistKind.allCases) { kind in
+                Button { libraryView = .smart(kind) } label: { Label(kind.title(player.language), systemImage: kind.icon) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(libraryView == .smart(kind) ? player.accent.color : .primary)
+            }
             Text(player.text("\(player.tracks.count) parça", "\(player.tracks.count) tracks")).foregroundStyle(.secondary)
             Button(player.text("Klasörü Tara", "Scan Folders"), action: player.refreshLibrary).buttonStyle(.plain).foregroundStyle(player.accent.color)
             Button(player.text("Equalizer", "Equalizer")) { showingEqualizer = true }.buttonStyle(.plain).foregroundStyle(player.accent.color)
+            Button(player.text("Mini Oynatıcı", "Mini Player")) { openWindow(id: "mini-player") }.buttonStyle(.plain).foregroundStyle(player.accent.color)
+            Button(player.text("Dönüştürücü", "Converter")) { showingConverter = true }.buttonStyle(.plain).foregroundStyle(player.accent.color)
             Divider()
             HStack { Text(player.text("Playlistler", "Playlists")).font(.headline); Spacer(); Button { isCreatingPlaylist = true } label: { Image(systemName: "plus") }.buttonStyle(.plain).foregroundStyle(player.accent.color).help(player.text("Yeni playlist", "New playlist")) }
             ForEach(player.playlists) { playlist in
@@ -652,14 +774,24 @@ struct ContentView: View {
             if !selectedTrackIDs.isEmpty, !player.playlists.isEmpty {
                 Menu { ForEach(player.playlists) { playlist in Button(playlist.name) { player.add(visibleTracks.filter { selectedTrackIDs.contains($0.id) }, to: playlist.id); selectedTrackIDs.removeAll() } } } label: { Label(player.text("Playlist'e Ekle", "Add to Playlist"), systemImage: "text.badge.plus") }.buttonStyle(.bordered)
             }
-            TextField(player.text("Ara", "Search"), text: $searchText).textFieldStyle(.roundedBorder).frame(width: 180)
+            TextField(player.text("Ara", "Search"), text: $searchText).focused($searchFocused).textFieldStyle(.roundedBorder).frame(width: 180)
             Picker(player.text("Görünüm", "View"), selection: $player.libraryDisplay) { Image(systemName: "list.bullet").tag(LibraryDisplay.list); Image(systemName: "square.grid.2x2").tag(LibraryDisplay.grid) }.labelsHidden().pickerStyle(.segmented).frame(width: 90)
-            Menu { Picker(player.text("Sırala", "Sort"), selection: $player.sortOrder) { ForEach(LibrarySort.allCases) { Text($0.title(player.language)).tag($0) } }; Divider(); Button(player.text("Müzik Dosyası Ekle…", "Add Music Files…"), action: player.pickFiles); Button(player.text("Müzik Klasörünü Seç…", "Choose Music Folder…",), action: player.pickLibraryFolder) } label: { Label(player.text("Müzik Ekle", "Add Music"), systemImage: "plus") }.buttonStyle(.borderedProminent).tint(player.accent.color)
+            Menu {
+                Picker(player.text("Sırala", "Sort"), selection: $player.advancedSort) { ForEach(AdvancedLibrarySort.allCases) { Text($0.title(player.language)).tag($0) } }
+                Picker(player.text("Yön", "Direction"), selection: $player.sortDirection) { ForEach(SortDirection.allCases) { Text($0.title(player.language)).tag($0) } }
+                Divider()
+                Toggle(player.text("Yalnızca favoriler", "Favorites only"), isOn: $player.libraryFilter.favoritesOnly)
+                Divider()
+                Button(player.text("Müzik Dosyası Ekle…", "Add Music Files…"), action: player.pickFiles)
+                Button(player.text("Müzik Klasörünü Seç…", "Choose Music Folder…",), action: player.pickLibraryFolder)
+                Button(player.text("Kütüphaneyi Yeniden Tara", "Rescan Library"), action: player.refreshLibrary)
+            } label: { Label(player.text("Kütüphane", "Library"), systemImage: "slider.horizontal.3") }.buttonStyle(.bordered)
+            Button(player.text("Müzik Ekle", "Add Music"), action: player.pickFiles).buttonStyle(.borderedProminent).tint(player.accent.color)
         }.padding(28)
     }
-    @ViewBuilder private var trackList: some View { if visibleTracks.isEmpty { VStack(spacing: 14) { Image(systemName: "music.note").font(.system(size: 44)).foregroundStyle(player.accent.color); Text(activePlaylist == nil ? player.text("Henüz müzik bulunamadı", "No music found") : player.text("Bu playlist boş", "This playlist is empty")).font(.title3.weight(.semibold)); Text(activePlaylist == nil ? player.text("Müzik klasörünüz otomatik taranır; isterseniz başka bir klasör de seçebilirsiniz.", "Your music folders are scanned automatically; you can also choose another folder.") : player.text("Kütüphaneden şarkı seçip playlist'e ekleyebilirsiniz.", "Select songs from the library to add them to this playlist.")).foregroundStyle(.secondary); if activePlaylist == nil { Button(player.text("Müzik Klasörü Seç…", "Choose Music Folder…"), action: player.pickLibraryFolder).buttonStyle(.bordered) } }.frame(maxWidth: .infinity, maxHeight: .infinity) } else if player.libraryDisplay == .list { List(visibleTracks, selection: $selectedTrackIDs) { track in trackRow(track) }.listStyle(.inset) } else { ScrollView { LazyVGrid(columns: [GridItem(.adaptive(minimum: 155, maximum: 220), spacing: 18)], spacing: 18) { ForEach(visibleTracks) { track in gridCard(track) } }.padding(.horizontal, 28).padding(.bottom, 20) } } }
-    private func trackRow(_ track: Track) -> some View { HStack(spacing: 12) { CoverArt(data: track.coverData, size: 34, accent: player.accent.color); VStack(alignment: .leading, spacing: 3) { Text(track.title).lineLimit(1); HStack(spacing: 4) { Button(track.artist.isEmpty ? player.text("Bilinmeyen sanatçı", "Unknown artist") : track.artist) { if !track.artist.isEmpty { selectedArtist = track.artist } }.buttonStyle(.plain).font(.caption).foregroundStyle(.secondary); if !track.album.isEmpty { Text("•").foregroundStyle(.secondary); Button(track.album) { selectedAlbum = track.album }.buttonStyle(.plain).font(.caption).foregroundStyle(.secondary) } } }; Spacer(); if track.id == player.currentTrackID { Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "pause.circle").foregroundStyle(player.accent.color) }; Button { player.toggleFavorite(track) } label: { Image(systemName: player.favoriteIDs.contains(track.id) ? "heart.fill" : "heart") }.buttonStyle(.plain).foregroundStyle(player.favoriteIDs.contains(track.id) ? player.accent.color : .secondary); Menu { ForEach(player.playlists) { playlist in Button(playlist.name) { player.add(track, to: playlist.id) } } } label: { Image(systemName: "text.badge.plus") }.menuStyle(.borderlessButton).help(player.text("Playlist'e ekle", "Add to playlist")); if let playlist = activePlaylist { Button { player.remove(track, from: playlist.id) } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain).foregroundStyle(.secondary).help(player.text("Playlist'ten çıkar", "Remove from playlist")) } else { Button { player.remove(track) } label: { Image(systemName: "trash") }.buttonStyle(.plain).foregroundStyle(.secondary) } }.contentShape(Rectangle()).onTapGesture { if let playlist = activePlaylist { player.playPlaylist(playlist.id, startingWith: track) } else { player.play(track) } }.padding(.vertical, 4) }
-    private func gridCard(_ track: Track) -> some View { Button { if let playlist = activePlaylist { player.playPlaylist(playlist.id, startingWith: track) } else { player.play(track) } } label: { VStack(alignment: .leading, spacing: 8) { ZStack(alignment: .topTrailing) { CoverArt(data: track.coverData, size: 140, accent: player.accent.color).frame(maxWidth: .infinity); if track.id == player.currentTrackID { Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "play.fill").padding(8).background(.ultraThinMaterial, in: Circle()).foregroundStyle(player.accent.color) } }; Text(track.title).fontWeight(.semibold).lineLimit(1); Text(track.artist.isEmpty ? player.text("Bilinmeyen sanatçı", "Unknown artist") : track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1); Text(track.album).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(track.id == player.currentTrackID ? player.accent.color.opacity(0.12) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12)) }.buttonStyle(.plain).contextMenu { Menu(player.text("Playlist'e Ekle", "Add to Playlist")) { ForEach(player.playlists) { playlist in Button(playlist.name) { player.add(track, to: playlist.id) } } }; if let playlist = activePlaylist { Button(player.text("Playlist'ten Çıkar", "Remove from Playlist"), role: .destructive) { player.remove(track, from: playlist.id) } } } }
+    @ViewBuilder private var trackList: some View { Group { if visibleTracks.isEmpty { VStack(spacing: 14) { Image(systemName: "music.note").font(.system(size: 44)).foregroundStyle(player.accent.color); Text(activePlaylist == nil ? player.text(searchText.isEmpty ? "Henüz müzik bulunamadı" : "Arama sonucu yok", searchText.isEmpty ? "No music found" : "No search results") : player.text("Bu playlist boş", "This playlist is empty")).font(.title3.weight(.semibold)); Text(activePlaylist == nil ? player.text(searchText.isEmpty ? "Müzik klasörünüz otomatik taranır; isterseniz başka bir klasör de seçebilirsiniz." : "Arama ifadenizi veya filtrelerinizi değiştirin.", searchText.isEmpty ? "Your music folders are scanned automatically; you can also choose another folder." : "Change your search or filters.") : player.text("Kütüphaneden şarkı seçip playlist'e ekleyebilirsiniz.", "Select songs from the library to add them to this playlist.")).foregroundStyle(.secondary); if activePlaylist == nil && searchText.isEmpty { Button(player.text("Müzik Klasörü Seç…", "Choose Music Folder…"), action: player.pickLibraryFolder).buttonStyle(.bordered) } }.frame(maxWidth: .infinity, maxHeight: .infinity) } else if player.libraryDisplay == .list { List(visibleTracks, selection: $selectedTrackIDs) { track in trackRow(track) }.listStyle(.inset) } else { ScrollView { LazyVGrid(columns: [GridItem(.adaptive(minimum: 155, maximum: 220), spacing: 18)], spacing: 18) { ForEach(visibleTracks) { track in gridCard(track) } }.padding(.horizontal, 28).padding(.bottom, 20) } } }.modifier(LibraryDropModifier(player: player)) }
+    private func trackRow(_ track: Track) -> some View { HStack(spacing: 12) { CoverArt(data: track.coverData, size: 34, accent: player.accent.color); VStack(alignment: .leading, spacing: 3) { Text(track.title).lineLimit(1); HStack(spacing: 4) { Button(track.artist.isEmpty ? player.text("Bilinmeyen sanatçı", "Unknown artist") : track.artist) { if !track.artist.isEmpty { selectedArtist = track.artist } }.buttonStyle(.plain).font(.caption).foregroundStyle(.secondary); if !track.album.isEmpty { Text("•").foregroundStyle(.secondary); Button(track.album) { selectedAlbum = track.album }.buttonStyle(.plain).font(.caption).foregroundStyle(.secondary) } } }; Spacer(); if track.id == player.currentTrackID { Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "pause.circle").foregroundStyle(player.accent.color) }; Button { player.toggleFavorite(track) } label: { Image(systemName: player.favoriteIDs.contains(track.id) ? "heart.fill" : "heart") }.buttonStyle(.plain).foregroundStyle(player.favoriteIDs.contains(track.id) ? player.accent.color : .secondary); Menu { Button(player.text("Sıradaki Çal", "Play Next")) { player.playNext(track) }; Button(player.text("Daha Sonra Çal", "Play Later")) { player.playLater(track) }; Divider(); ForEach(player.playlists) { playlist in Button(playlist.name) { player.add(track, to: playlist.id) } } } label: { Image(systemName: "text.badge.plus") }.menuStyle(.borderlessButton).help(player.text("Playlist'e ekle", "Add to playlist")); if let playlist = activePlaylist { Button { player.remove(track, from: playlist.id) } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain).foregroundStyle(.secondary).help(player.text("Playlist'ten çıkar", "Remove from playlist")) } else { Button { player.remove(track) } label: { Image(systemName: "trash") }.buttonStyle(.plain).foregroundStyle(.secondary) } }.contentShape(Rectangle()).onTapGesture { if let playlist = activePlaylist { player.playPlaylist(playlist.id, startingWith: track) } else { player.play(track) } }.contextMenu { Button(player.text("Parça Bilgisi", "Track Info")) { selectedTrackInfo = track }; Button(player.text("Finder'da Göster", "Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting([track.url]) } }.padding(.vertical, 4) }
+    private func gridCard(_ track: Track) -> some View { Button { if let playlist = activePlaylist { player.playPlaylist(playlist.id, startingWith: track) } else { player.play(track) } } label: { VStack(alignment: .leading, spacing: 8) { ZStack(alignment: .topTrailing) { CoverArt(data: track.coverData, size: 140, accent: player.accent.color).frame(maxWidth: .infinity); if track.id == player.currentTrackID { Image(systemName: player.isPlaying ? "speaker.wave.2.fill" : "play.fill").padding(8).background(.ultraThinMaterial, in: Circle()).foregroundStyle(player.accent.color) } }; Text(track.title).fontWeight(.semibold).lineLimit(1); Text(track.artist.isEmpty ? player.text("Bilinmeyen sanatçı", "Unknown artist") : track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1); Text(track.album).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }.padding(10).frame(maxWidth: .infinity, alignment: .leading).background(track.id == player.currentTrackID ? player.accent.color.opacity(0.12) : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12)) }.buttonStyle(.plain).contextMenu { Button(player.text("Sıradaki Çal", "Play Next")) { player.playNext(track) }; Button(player.text("Daha Sonra Çal", "Play Later")) { player.playLater(track) }; Button(player.text("Parça Bilgisi", "Track Info")) { selectedTrackInfo = track }; Divider(); Menu(player.text("Playlist'e Ekle", "Add to Playlist")) { ForEach(player.playlists) { playlist in Button(playlist.name) { player.add(track, to: playlist.id) } } }; if let playlist = activePlaylist { Button(player.text("Playlist'ten Çıkar", "Remove from Playlist"), role: .destructive) { player.remove(track, from: playlist.id) } } } }
     private var nowPlaying: some View {
         VStack(spacing: 12) {
             HStack {
@@ -685,6 +817,7 @@ struct ContentView: View {
                 Button(action: player.togglePlayback) { Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title3).frame(width: 42, height: 42) }.buttonStyle(.borderedProminent).tint(player.accent.color).clipShape(Circle())
                 Button(action: player.next) { Image(systemName: "forward.fill") }.buttonStyle(.plain)
                 Button(action: player.cycleRepeatMode) { Image(systemName: player.repeatMode.icon) }.buttonStyle(.plain).foregroundStyle(player.repeatMode == .off ? .primary : player.accent.color)
+                Button { showingQueue = true } label: { Image(systemName: "text.line.first.and.arrowtriangle.forward") }.buttonStyle(.plain).help(player.text("Sıradaki", "Up Next"))
                 Spacer()
                 Image(systemName: "speaker.wave.2.fill").foregroundStyle(.secondary)
                 Slider(value: $player.volume, in: 0...1).frame(width: 100).tint(player.accent.color)
@@ -700,17 +833,43 @@ struct ContentView: View {
         case .all: break
         case .favorites: result = result.filter { player.favoriteIDs.contains($0.id) }
         case .recent: result = player.recentlyPlayedIDs.compactMap { id in result.first { $0.id == id } }
+        case .smart(let kind): result = player.smartPlaylistTracks(kind)
         case .playlist(let playlistID):
             result = player.playlistTracks(playlistID)
         }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !query.isEmpty { result = result.filter { "\($0.title) \($0.artist) \($0.album)".localizedCaseInsensitiveContains(query) } }
-        switch player.sortOrder {
-        case .title: return result.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        case .artist: return result.sorted { $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending }
-        case .album: return result.sorted { $0.album.localizedCaseInsensitiveCompare($1.album) == .orderedAscending }
-        case .recentlyAdded: return result
+        if player.libraryFilter.favoritesOnly { result = result.filter { player.favoriteIDs.contains($0.id) } }
+        let sorted = result.sorted { left, right in
+            let comparison: Bool
+            switch player.advancedSort {
+            case .title: comparison = left.title.localizedCaseInsensitiveCompare(right.title) == .orderedAscending
+            case .artist: comparison = left.artist.localizedCaseInsensitiveCompare(right.artist) == .orderedAscending
+            case .album: comparison = left.album.localizedCaseInsensitiveCompare(right.album) == .orderedAscending
+            case .genre: comparison = left.genre.localizedCaseInsensitiveCompare(right.genre) == .orderedAscending
+            case .year: comparison = (left.year ?? "") < (right.year ?? "")
+            case .duration: comparison = left.duration < right.duration
+            case .dateAdded: comparison = player.statistics(for: left).dateAdded < player.statistics(for: right).dateAdded
+            case .lastPlayed: comparison = (player.statistics(for: left).lastPlayedDate ?? .distantPast) < (player.statistics(for: right).lastPlayedDate ?? .distantPast)
+            case .playCount: comparison = player.statistics(for: left).playCount < player.statistics(for: right).playCount
+            case .favorites: comparison = !player.favoriteIDs.contains(left.id) && player.favoriteIDs.contains(right.id)
+            }
+            return player.sortDirection == .ascending ? comparison : !comparison
         }
+        return sorted
+    }
+    private func handleNavigation(_ request: NavigationRequest?) {
+        guard let request else { return }
+        switch request {
+        case .library: libraryView = .all
+        case .playlists: isCreatingPlaylist = true
+        case .search: searchFocused = true
+        case .equalizer: showingEqualizer = true
+        case .appearance: showingAppearanceSettings = true
+        case .toggleFavorite:
+            if let track = player.currentTrack { player.toggleFavorite(track) }
+        }
+        player.requestedNavigation = nil
     }
     private func time(_ seconds: TimeInterval) -> String { guard seconds.isFinite else { return "0:00" }; return String(format: "%d:%02d", Int(seconds) / 60, Int(seconds) % 60) }
 }
