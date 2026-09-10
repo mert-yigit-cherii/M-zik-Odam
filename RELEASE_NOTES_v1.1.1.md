@@ -2,7 +2,7 @@
 
 ## Hata düzeltmeleri
 
-- Görünüm/Appearance menüsünde seçim yapılamamasına neden olan menü denetimi sorunu düzeltildi.
+- Görünüm/Appearance ayarları, seçimlerin birden fazla kez güvenle değiştirilebilmesi için native popover’a taşındı.
 - Menu bar mini player'daki Previous, Play/Pause ve Next kontrolleri yatay ve kompakt bir düzenle sunuluyor.
 
 Bu sürüm v1.1.0 özelliklerini koruyan bir bakım yamasıdır.

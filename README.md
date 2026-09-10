@@ -18,6 +18,7 @@ macOS 14 veya daha yenisi için yerel müzik oynatıcısı.
 ## v1.1.1 yama notları
 
 - Görünüm/Appearance menüsündeki dil, tema, vurgu rengi ve Ambient Effect seçimleri düzeltildi.
+- Görünüm ayarları, birden fazla seçimin kesintisiz yapılabilmesi için açılır menü yerine native ayar popover’ına taşındı.
 - Menu bar mini player, Previous, Play/Pause ve Next kontrollerini yatay ve kompakt bir popover içinde gösterir.
 
 MP3, AAC/M4A, WAV, AIFF, ALAC, FLAC ve macOS tarafından çözülebilen diğer yerel ses biçimleri desteklenir. Çok kanallı parçalarda EQ, kanal yapısını zorla stereo'ya çevirmemek için güvenli biçimde devre dışı kalır; parça macOS oynatıcısında oynatılır. Dolby Atmos desteği iddia edilmez.
