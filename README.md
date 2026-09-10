@@ -1,4 +1,4 @@
-# Müzik Odam v1.1.0
+# Müzik Odam v1.1.1
 
 macOS 14 veya daha yenisi için yerel müzik oynatıcısı.
 
@@ -14,6 +14,11 @@ macOS 14 veya daha yenisi için yerel müzik oynatıcısı.
 - macOS Now Playing, medya tuşları ve menu bar mini player
 - Gerçek 9 bantlı Equalizer (60 Hz–16 kHz) ve presetler
 - Albüm kapağından türetilen Ambient Effect
+
+## v1.1.1 yama notları
+
+- Görünüm/Appearance menüsündeki dil, tema, vurgu rengi ve Ambient Effect seçimleri düzeltildi.
+- Menu bar mini player, Previous, Play/Pause ve Next kontrollerini yatay ve kompakt bir popover içinde gösterir.
 
 MP3, AAC/M4A, WAV, AIFF, ALAC, FLAC ve macOS tarafından çözülebilen diğer yerel ses biçimleri desteklenir. Çok kanallı parçalarda EQ, kanal yapısını zorla stereo'ya çevirmemek için güvenli biçimde devre dışı kalır; parça macOS oynatıcısında oynatılır. Dolby Atmos desteği iddia edilmez.
 
