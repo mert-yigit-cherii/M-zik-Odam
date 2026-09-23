@@ -1,4 +1,4 @@
-# Müzik Odam v1.1.1
+# Müzik Odam v1.2.0
 
 macOS 14 veya daha yenisi için yerel müzik oynatıcısı.
 
@@ -14,16 +14,25 @@ macOS 14 veya daha yenisi için yerel müzik oynatıcısı.
 - macOS Now Playing, medya tuşları ve menu bar mini player
 - Gerçek 9 bantlı Equalizer (60 Hz–16 kHz) ve presetler
 - Albüm kapağından türetilen Ambient Effect
+- Gelişmiş kütüphane sıralama, yerel dinleme istatistikleri ve Smart Playlist’ler
+- Up Next kuyruğu, Play Next / Play Later, Mini Player ve parça bilgi ekranı
+- Finder’dan dosya veya klasör sürükle-bırak ile kütüphaneye ekleme
+- Yerel Converter kuyruğu: gerçek AAC/M4A dönüşümü, güvenli geçici çıktı, iptal, yeniden deneme ve geçmiş
 
-## v1.1.1 yama notları
+## v1.2.0 notları
 
-- Görünüm/Appearance menüsündeki dil, tema, vurgu rengi ve Ambient Effect seçimleri düzeltildi.
-- Görünüm ayarları, birden fazla seçimin kesintisiz yapılabilmesi için açılır menü yerine native ayar popover’ına taşındı.
-- Menu bar mini player, Previous, Play/Pause ve Next kontrollerini yatay ve kompakt bir popover içinde gösterir.
+- Native pencere başlık çubuğu geri getirildi; kapat, küçült ve büyüt kontrolleri içerikten ayrıldı.
+- Kütüphane filtreleme/sıralama, Smart Playlist’ler, yerel oynatma istatistikleri, Up Next kuyruğu ve Mini Player eklendi.
+- Track Info ve Finder’da göster ile parça ayrıntıları erişilebilir hale geldi.
+- Yerel AAC/M4A Converter ve dönüşüm geçmişi eklendi.
 
 MP3, AAC/M4A, WAV, AIFF, ALAC, FLAC ve macOS tarafından çözülebilen diğer yerel ses biçimleri desteklenir. Çok kanallı parçalarda EQ, kanal yapısını zorla stereo'ya çevirmemek için güvenli biçimde devre dışı kalır; parça macOS oynatıcısında oynatılır. Dolby Atmos desteği iddia edilmez.
 
-Visualizer v1.1.0 sürümüne dahil değildir.
+Visualizer bu sürüme dahil değildir.
+
+### Converter formatları
+
+Bu yayın, Apple AVFoundation ile gerçekten AAC/M4A çıktısı üretir. MP3, Opus, FLAC, WAV ve AIFF dönüştürme encoder’ları bu paketle gelmez; uygulama bunları destekleniyormuş gibi göstermez.
 
 ## Gizlilik
 
